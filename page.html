@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Steam Tracker — Grille de jeux</title>
+    <style>
+        :root{--gap:12px;--accent:#1b2838;--muted:#7b8a96;--bg:#0b1620}
+        html,body{height:100%;margin:0;background:linear-gradient(180deg,#071019 0%, #536672 100%);background-size: cover;background-position: center;background-attachment: fixed;background-repeat: no-repeat;font-family:Inter,Segoe UI,Arial,sans-serif;color:#d7e6ef}
+        .container{max-width:1100px;margin:28px auto;padding:20px}
+        h1{margin:0 0 16px 0;color:var(--accent)}
+
+        /* Grille principale */
+        .grid{
+            display:grid;
+            grid-template-columns:1fr 160px 160px 120px;
+            gap:var(--gap);
+            align-items:center;
+        }
+
+        /* En-tête - supprimer l'en-tête Image */
+        .grid .header{background:rgba(255,255,255,0.03);padding:10px 12px;border-radius:6px;font-weight:600;color:#bcd3e6}
+
+        /* Lignes de jeu */
+        .game-row{display:contents}
+        .cell{background:rgba(255,255,255,0.02);padding:10px;border-radius:6px;display:flex;align-items:center;gap:10px}
+        
+        /* Cellule Nom avec image intégrée */
+        .name-cell{
+            position:relative;
+            background:rgba(255,255,255,0.02);
+            padding:10px;
+            border-radius:6px;
+            display:flex;
+            align-items:center;
+            min-height:92px;
+            overflow:hidden;
+        }
+        
+        /* Image de fond avec fondu */
+        .name-bg-image{
+            position:absolute;
+            right:0;
+            top:0;
+            bottom:0;
+            width:270px;
+            background-size:cover;
+            background-position:center right;
+            z-index:1;
+            mask-image:linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 30%, rgba(0,0,0,0.8) 70%, black 100%);
+            -webkit-mask-image:linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 30%, rgba(0,0,0,0.8) 70%, black 100%);
+        }
+        
+        /* Contenu texte par-dessus l'image */
+        .name-content{
+            position:relative;
+            z-index:2;
+            padding-right:80px;
+            flex:1;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+        }
+        
+        .game-title{
+            font-size:16px;
+            font-weight:600;
+            color:#fff;
+            margin-bottom:4px;
+        }
+        
+        .meta{font-size:13px;color:var(--muted);margin-bottom:6px}
+        
+        /* Prix */
+        .price-old{text-decoration:line-through;color:#ffb3b3}
+        .price-current{font-weight:700;color:#b6ffda}
+        .discount{background:#1a7f57;color:white;padding:6px 8px;border-radius:6px;font-weight:700}
+
+        /* Boutons */
+        .delete-btn {
+            background: #5c2e2e;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 4px;
+            align-self:flex-start;
+        }
+        
+        .delete-btn:hover {
+            background: #7a3a3a;
+        }
+        
+        .retry-btn {
+            background: #2a5c47;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 4px;
+            margin-left: 4px;
+            align-self:flex-start;
+        }
+        
+        .retry-btn:hover {
+            background: #357a5c;
+        }
+
+        /* Responsiveness */
+        @media (max-width:800px){
+            .grid{grid-template-columns:1fr 110px 110px 90px}
+            .name-cell{min-height:80px;}
+            .name-bg-image{width:150px;}
+        }
+        @media (max-width:560px){
+            .grid{grid-template-columns:1fr}
+            .grid .header:nth-child(n+2), .cell:nth-child(n+2){display:none}
+            .name-bg-image{width:120px;}
+        }
+
+        /* Messages */
+        .success { color: #66c0f4; }
+        .error { color: #ff6b6b; }
+        .warning { color: #ffd166; }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #2a4758;
+            border-top-color: #66c0f4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Liste de jeux Steam</h1>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+            <input id="gameIdInput" type="number" placeholder="Entrez l'ID Steam (ex: 227300)" style="padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;width:200px" />
+            <button id="addGameBtn" style="padding:8px 12px;border-radius:6px;border:0;background:#2a4758;color:#e6f7f0;font-weight:700;cursor:pointer">Ajouter un jeu</button>
+            <button id="clearBtn" style="padding:8px 12px;border-radius:6px;border:1px solid #5c2e2e;background:transparent;color:#e6f7f0;font-weight:700;cursor:pointer">Effacer tout</button>
+            <div id="status" style="color:#9fb0bd;font-size:13px;margin-left:6px;display:flex;align-items:center"></div>
+        </div>
+        <div class="grid" id="gamesGrid">
+            <!-- REMOVED: <div class="header">Image</div> -->
+            <div class="header">Nom</div>
+            <div class="header">Prix original</div>
+            <div class="header">Prix actuel</div>
+            <div class="header">Réduction</div>
+
+            <!-- Les lignes de jeux seront injectées ici via JS -->
+        </div>
+    </div>
+
+    <script>
+        // Exemple de données initiales
+        const games = [
+            {
+                header_image: 'https://cdn.cloudflare.steamstatic.com/steam/apps/227300/header.jpg',
+                name: 'Portal 2',
+                price_initial_cents: 1999,
+                price_final_cents: 499,
+                discount_percent: 75,
+                appid: 227300,
+                steam_appid: 227300,
+                is_free: false,
+                type: 'game',
+                last_updated: new Date().toISOString()
+            }
+        ];
+        
+        // Configuration
+        const CONFIG = {
+            timeout: 10000, // 10 secondes
+            maxRetries: 2,
+            retryDelay: 2000,
+            useProxy: true,
+            proxies: [
+                'https://api.allorigins.win/raw?url=',
+                'https://corsproxy.io/?',
+                'https://api.codetabs.com/v1/proxy?quest='
+            ]
+        };
+        
+        // Fonction pour afficher le statut
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.innerHTML = '';
+            
+            if (type === 'loading') {
+                statusEl.innerHTML = `<span class="loading"></span>${message}`;
+                statusEl.className = '';
+            } else if (type === 'success') {
+                statusEl.innerHTML = `✓ ${message}`;
+                statusEl.className = 'success';
+            } else if (type === 'error') {
+                statusEl.innerHTML = `✗ ${message}`;
+                statusEl.className = 'error';
+            } else if (type === 'warning') {
+                statusEl.innerHTML = `⚠ ${message}`;
+                statusEl.className = 'warning';
+            } else {
+                statusEl.textContent = message;
+                statusEl.className = '';
+            }
+            
+            if (type !== 'loading') {
+                setTimeout(() => {
+                    if (statusEl.textContent.includes(message.substring(0, 20))) {
+                        statusEl.textContent = '';
+                        statusEl.className = '';
+                    }
+                }, 5000);
+            }
+        }
+        
+        // Fonction fetch avec timeout et retry
+        async function fetchWithTimeoutAndRetry(url, options = {}, retryCount = 0) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeout);
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                return response;
+            } catch (error) {
+                clearTimeout(timeoutId);
+                
+                if (error.name === 'AbortError') {
+                    showStatus(`Timeout (${CONFIG.timeout}ms)`, 'warning');
+                }
+                
+                if (retryCount < CONFIG.maxRetries) {
+                    showStatus(`Nouvel essai (${retryCount + 1}/${CONFIG.maxRetries})...`, 'warning');
+                    await new Promise(resolve => setTimeout(resolve, CONFIG.retryDelay));
+                    return fetchWithTimeoutAndRetry(url, options, retryCount + 1);
+                }
+                
+                throw error;
+            }
+        }
+        
+        // Evite doublons
+        function hasGame(appid){
+            return games.some(g => String(g.appid) === String(appid) || String(g.steam_appid) === String(appid));
+        }
+        
+        // Fonction améliorée pour récupérer les données Steam
+        async function fetchGameData(appId){
+            showStatus('Connexion à l\'API Steam...', 'loading');
+            
+            const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr`;
+            
+            // Essayer différents proxies en cas d'échec
+            const proxiesToTry = CONFIG.useProxy ? [...CONFIG.proxies, ''] : [''];
+            
+            for (let i = 0; i < proxiesToTry.length; i++) {
+                const proxy = proxiesToTry[i];
+                const url = proxy ? proxy + encodeURIComponent(steamUrl) : steamUrl;
+                
+                try {
+                    showStatus(`Essai ${i + 1}/${proxiesToTry.length}...`, 'loading');
+                    
+                    const response = await fetchWithTimeoutAndRetry(url, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        if (response.status === 408 || response.status === 429) {
+                            showStatus(`API Steam occupée, attente...`, 'warning');
+                            await new Promise(resolve => setTimeout(resolve, 3000));
+                            continue;
+                        }
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Vérifier si l'ID existe
+                    if (!data || !data[appId]) {
+                        showStatus(`Aucune donnée pour l'ID ${appId}`, 'warning');
+                        return createFallbackGame(appId);
+                    }
+                    
+                    const gameData = data[appId];
+                    
+                    // Gérer le cas success: false
+                    if (!gameData.success) {
+                        showStatus(`Jeu ${appId} non disponible sur Steam`, 'warning');
+                        return createFallbackGame(appId, true);
+                    }
+                    
+                    return processGameData(appId, gameData.data);
+                    
+                } catch (error) {
+                    console.error(`Essai ${i + 1} échoué:`, error.message);
+                    
+                    if (i === proxiesToTry.length - 1) {
+                        // Dernier essai échoué
+                        showStatus('Échec de connexion à Steam', 'error');
+                        return createFallbackGame(appId);
+                    }
+                    
+                    // Attendre avant prochain essai
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            
+            return null;
+        }
+        
+        function createFallbackGame(appId, fromSteam = false) {
+            const gameName = fromSteam ? `Jeu ID: ${appId} (Indisponible)` : `Jeu ID: ${appId} (Hors ligne)`;
+            
+            return {
+                appid: appId,
+                steam_appid: appId,
+                name: gameName,
+                header_image: 'https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png',
+                is_free: false,
+                price_initial_cents: null,
+                price_final_cents: null,
+                discount_percent: 0,
+                type: 'unknown',
+                unavailable: true,
+                offline: !fromSteam,
+                last_updated: new Date().toISOString()
+            };
+        }
+        
+        function processGameData(appId, gameDetails) {
+            const priceOverview = gameDetails.price_overview;
+            const isFree = gameDetails.is_free || 
+                          (priceOverview && priceOverview.final === 0) || 
+                          (!priceOverview && gameDetails.type === 'game');
+            
+            const formattedData = {
+                appid: appId,
+                steam_appid: gameDetails.steam_appid || appId,
+                name: gameDetails.name || `Jeu ID: ${appId}`,
+                header_image: gameDetails.header_image || 'https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png',
+                is_free: isFree,
+                price_initial_cents: priceOverview ? priceOverview.initial : null,
+                price_final_cents: priceOverview ? priceOverview.final : (isFree ? 0 : null),
+                discount_percent: priceOverview ? priceOverview.discount_percent : 0,
+                type: gameDetails.type || 'unknown',
+                last_updated: new Date().toISOString()
+            };
+            
+            showStatus(`"${formattedData.name}" récupéré`, 'success');
+            return formattedData;
+        }
+        
+        async function fetchAndAddGame(appId){
+            if (!appId || appId <= 0) {
+                showStatus('ID invalide', 'error');
+                return;
+            }
+            
+            if (hasGame(appId)){
+                showStatus(`Le jeu ${appId} est déjà présent`, 'warning');
+                return;
+            }
+            
+            // Désactiver le bouton pendant la requête
+            const btn = document.getElementById('addGameBtn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Chargement...';
+            btn.disabled = true;
+            
+            try {
+                const gameData = await fetchGameData(appId);
+                
+                if (gameData) {
+                    games.push(gameData);
+                    addGameRow(gameData);
+                    saveGamesToLocalStorage();
+                    document.getElementById('gameIdInput').value = '';
+                }
+            } finally {
+                // Réactiver le bouton
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+        
+        async function retryGame(appId) {
+            const index = games.findIndex(g => 
+                String(g.appid) === String(appId) || 
+                String(g.steam_appid) === String(appId)
+            );
+            
+            if (index !== -1) {
+                showStatus(`Nouvelle tentative pour ${appId}...`, 'loading');
+                const gameData = await fetchGameData(appId);
+                
+                if (gameData && !gameData.unavailable) {
+                    games[index] = gameData;
+                    saveGamesToLocalStorage();
+                    refreshGrid();
+                    showStatus(`Jeu ${appId} mis à jour`, 'success');
+                }
+            }
+        }
+        
+        function formatPrice(cents){
+            if (cents === null || cents === undefined) return '—';
+            return (cents/100).toFixed(2) + '€';
+        }
+        
+        function formatPriceForFree(isFree, cents) {
+            if (isFree) return 'Gratuit';
+            if (cents === null || cents === undefined) return '—';
+            return formatPrice(cents);
+        }
+        
+        function addGameRow(game){
+            const grid = document.getElementById('gamesGrid');
+            
+            // NOUVELLE CELLULE NOM avec image intégrée
+            const nameCell = document.createElement('div'); 
+            nameCell.className='name-cell';
+            
+            // Image de fond avec fondu
+            const bgImage = document.createElement('div');
+            bgImage.className = 'name-bg-image';
+            bgImage.style.backgroundImage = `url('${game.header_image}')`;
+            bgImage.onerror = function() {
+                this.style.backgroundImage = `url('https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png')`;
+            };
+            
+            // Contenu texte
+            const nameContent = document.createElement('div');
+            nameContent.className = 'name-content';
+            
+            const title = document.createElement('div'); 
+            title.className = 'game-title';
+            title.textContent = game.name || 'Inconnu';
+            
+            if (game.unavailable) {
+                title.style.color = game.offline ? '#ffa366' : '#ff6b6b';
+                title.title = game.offline ? 'Connexion échouée' : 'Jeu indisponible';
+            }
+            
+            const meta = document.createElement('div'); 
+            meta.className='meta';
+            
+            let metaText = `ID: ${game.appid || game.steam_appid || '—'}`;
+            if (game.type && game.type !== 'unknown') {
+                metaText += ` | Type: ${game.type}`;
+            }
+            if (game.last_updated) {
+                const date = new Date(game.last_updated);
+                metaText += ` | Maj: ${date.toLocaleDateString('fr-FR')}`;
+            }
+            
+            meta.textContent = metaText;
+            
+            // Boutons d'action
+            const actions = document.createElement('div');
+            actions.style.display = 'flex';
+            actions.style.gap = '4px';
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = 'Supprimer';
+            deleteBtn.onclick = function() {
+                removeGame(game.appid || game.steam_appid);
+            };
+            
+            actions.appendChild(deleteBtn);
+            
+            if (game.unavailable || game.offline) {
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'retry-btn';
+                retryBtn.textContent = 'Réessayer';
+                retryBtn.onclick = function() {
+                    retryGame(game.appid || game.steam_appid);
+                };
+                actions.appendChild(retryBtn);
+            }
+            
+            nameContent.appendChild(title); 
+            nameContent.appendChild(meta);
+            nameContent.appendChild(actions);
+            
+            nameCell.appendChild(bgImage);
+            nameCell.appendChild(nameContent);
+            
+            // Cellule Prix original
+            const oldCell = document.createElement('div'); 
+            oldCell.className='cell';
+            const oldPrice = document.createElement('div'); 
+
+            if (game.is_free) {
+                // Gratuit -> afficher '—' en style courant
+                oldPrice.className = 'price-current';
+                oldPrice.textContent = '—';
+            } else if (game.price_initial_cents !== null && game.price_initial_cents !== undefined) {
+                const initial = Number(game.price_initial_cents);
+                const final = (game.price_final_cents !== null && game.price_final_cents !== undefined) ? Number(game.price_final_cents) : null;
+
+                // Si prix initial == prix final -> afficher en vert (non barré)
+                if (final !== null && initial === final) {
+                    oldPrice.className = 'price-current';
+                } else {
+                    oldPrice.className = 'price-old';
+                }
+
+                oldPrice.textContent = formatPrice(initial);
+            } else {
+                oldPrice.className = '';
+                oldPrice.textContent = '—';
+            }
+            oldCell.appendChild(oldPrice);
+            
+            // Cellule Prix actuel
+            const currentCell = document.createElement('div'); 
+            currentCell.className='cell';
+            const curPrice = document.createElement('div'); 
+            curPrice.className='price-current';
+            
+            if (game.unavailable) {
+                curPrice.textContent = game.offline ? 'Hors ligne' : 'Indisponible';
+                curPrice.style.color = game.offline ? '#ffa366' : '#ff6b6b';
+            } else {
+                curPrice.textContent = formatPriceForFree(game.is_free, game.price_final_cents);
+            }
+            currentCell.appendChild(curPrice);
+            
+            // Cellule Réduction
+            const discCell = document.createElement('div'); 
+            discCell.className='cell';
+            const disc = document.createElement('div'); 
+            disc.className='discount';
+            
+            if (game.unavailable) {
+                disc.textContent = game.offline ? 'ERR' : 'N/A';
+                disc.style.background = game.offline ? '#5c5c2e' : '#5c2e2e';
+            } else if (game.is_free) {
+                disc.textContent = 'FREE';
+                disc.style.background = '#2a4758';
+            } else if (game.discount_percent > 0) {
+                disc.textContent = `-${game.discount_percent}%`;
+                disc.style.background = '#1a7f57';
+            } else {
+                disc.textContent = '0%';
+                disc.style.background = 'var(--muted)';
+            }
+            
+            discCell.appendChild(disc);
+            
+            // Ajout des cellules (l'image n'a plus sa propre cellule)
+            grid.appendChild(nameCell);     // Remplace imgCell + nameCell
+            grid.appendChild(oldCell);
+            grid.appendChild(currentCell);
+            grid.appendChild(discCell);
+        }
+        
+        function removeGame(appId) {
+            const index = games.findIndex(g => 
+                String(g.appid) === String(appId) || 
+                String(g.steam_appid) === String(appId)
+            );
+            
+            if (index !== -1) {
+                games.splice(index, 1);
+                saveGamesToLocalStorage();
+                refreshGrid();
+                showStatus('Jeu supprimé', 'success');
+            }
+        }
+        
+        function refreshGrid() {
+            const grid = document.getElementById('gamesGrid');
+            const headers = Array.from(grid.children).slice(0, 4); // 4 colonnes maintenant
+            
+            grid.innerHTML = '';
+            headers.forEach(header => grid.appendChild(header));
+            games.forEach(addGameRow);
+        }
+        
+        // Fonctions de sauvegarde/chargement
+        function saveGamesToLocalStorage() {
+            localStorage.setItem('steamGames', JSON.stringify(games));
+        }
+        
+        function loadGamesFromLocalStorage() {
+            const savedGames = localStorage.getItem('steamGames');
+            if (savedGames) {
+                try {
+                    const parsedGames = JSON.parse(savedGames);
+                    games.length = 0;
+                    parsedGames.forEach(game => games.push(game));
+                    return true;
+                } catch (e) {
+                    console.error('Erreur de chargement:', e);
+                    localStorage.removeItem('steamGames');
+                }
+            }
+            return false;
+        }
+        
+        function clearAllGames() {
+            if (games.length === 0) {
+                showStatus('Aucun jeu à supprimer', 'warning');
+                return;
+            }
+            
+            if (confirm(`Voulez-vous vraiment supprimer tous les jeux (${games.length}) ?`)) {
+                games.length = 0;
+                localStorage.removeItem('steamGames');
+                refreshGrid();
+                showStatus('Tous les jeux ont été supprimés', 'success');
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', ()=>{
+            if (loadGamesFromLocalStorage()) {
+                showStatus(`${games.length} jeu(x) chargé(s)`, 'success');
+            }
+            
+            games.forEach(addGameRow);
+            
+            const btn = document.getElementById('addGameBtn');
+            const input = document.getElementById('gameIdInput');
+            const clearBtn = document.getElementById('clearBtn');
+            
+            btn.addEventListener('click', ()=>{
+                const id = input.value && input.value.trim();
+                if (!id) {
+                    showStatus('Entrez un ID Steam valide', 'error');
+                    return;
+                }
+                fetchAndAddGame(id);
+            });
+            
+            input.addEventListener('keydown', (e)=>{ 
+                if (e.key === 'Enter'){ 
+                    btn.click(); 
+                } 
+            });
+            
+            clearBtn.addEventListener('click', clearAllGames);
+            
+            // Auto-focus sur l'input
+            input.focus();
+        });
+    </script>
+</body>
+</html>
