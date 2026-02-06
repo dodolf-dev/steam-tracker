@@ -1636,22 +1636,6 @@ function createVersionsPanel(game, versionsData, expandedRow) {
         
         container.appendChild(dlcSection);
         
-        if (versionsData.loadedDlcCount === versionsData.totalDlcCount && versionsData.totalDlcCount > 0) {
-            const errorCount = versionsData.dlcs.filter(d => d.error).length;
-            if (errorCount === 0) {
-                const allLoadedMsg = document.createElement('div');
-                allLoadedMsg.className = 'loading-versions';
-                allLoadedMsg.style.cssText = 'color: #66c0f4; text-align: center; margin-top: 10px; font-size: 12px;';
-                allLoadedMsg.textContent = '✓ Tous les DLC sont chargés';
-                container.appendChild(allLoadedMsg);
-            } else {
-                const errorMsg = document.createElement('div');
-                errorMsg.className = 'loading-versions';
-                errorMsg.style.cssText = 'color: #ff8c42; text-align: center; margin-top: 10px; font-size: 12px;';
-                errorMsg.textContent = `✓ ${versionsData.loadedDlcCount - errorCount} DLC chargés, ${errorCount} en erreur`;
-                container.appendChild(errorMsg);
-            }
-        }
     } else {
         const noDlcSection = document.createElement('div');
         noDlcSection.className = 'versions-section';
