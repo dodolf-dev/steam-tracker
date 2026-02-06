@@ -217,6 +217,9 @@
             color: #fff;
             font-size: 14px;
             margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .version-price-container {
@@ -250,6 +253,15 @@
         .version-free {
             background: #2a4758;
             color: #66c0f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .version-error {
+            background: #ff8c42;
+            color: #662900;
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 11px;
@@ -296,6 +308,21 @@
             color: #9fb0bd;
             text-align: center;
             margin-top: 4px;
+        }
+
+        .dlc-retry-btn {
+            background: #ff8c42;
+            color: white;
+            border: none;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .dlc-retry-btn:hover {
+            background: #ff9e5e;
         }
 
         .success { color: #66c0f4; }
@@ -348,7 +375,7 @@
         <h1>Liste de jeux Steam</h1>
 
         <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-            <input id="gameIdInput" type="number" placeholder="Entrez l'ID Steam" style="padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;width:200px" />
+            <input id="gameIdInput" type="number" placeholder="Entrez l'ID Steam (ex: 227300)" style="padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;width:200px" />
             <button id="addGameBtn" style="padding:8px 12px;border-radius:6px;border:0;background:#2a4758;color:#e6f7f0;font-weight:700;cursor:pointer">Ajouter un jeu</button>
             <button id="clearBtn" style="padding:8px 12px;border-radius:6px;border:1px solid #5c2e2e;background:transparent;color:#e6f7f0;font-weight:700;cursor:pointer">Effacer tout</button>
             <div id="status" style="color:#9fb0bd;font-size:13px;margin-left:6px;display:flex;align-items:center"></div>
@@ -373,7 +400,8 @@ const CONFIG = {
     useProxy: true,
     proxies: [
         'https://api.allorigins.win/raw?url=',
-        'https://corsproxy.io/?'
+        'https://corsproxy.io/?',
+        'https://api.codetabs.com/v1/proxy?quest='
     ],
     dlcBatchSize: 6,
     dlcDelay: 400,
@@ -519,24 +547,28 @@ function createFallbackDLC(dlcId, error = false) {
         header_image: null,
         price_overview: null,
         is_free: false,
-        error: error
+        error: error,
+        last_attempt: Date.now()
     };
 }
 
 async function tryFetchSteamAPI(dlcId, proxy = null) {
-    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${dlcId}&cc=fr&l=fr`;
+    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${dlcId}&cc=fr&l=fr&filters=basic,price_overview`;
     const url = proxy ? proxy + encodeURIComponent(steamUrl) : steamUrl;
     
     try {
         const response = await fetchWithTimeoutAndRetry(url, {
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'fr-FR,fr;q=0.9',
+                'Referer': 'https://store.steampowered.com/'
             },
             timeout: 7000
         });
         
         if (!response.ok) {
+            console.warn(`DLC ${dlcId}: HTTP ${response.status}`);
             return null;
         }
         
@@ -544,27 +576,45 @@ async function tryFetchSteamAPI(dlcId, proxy = null) {
         
         if (data[dlcId]?.success) {
             const dlcData = data[dlcId].data;
-            return {
-                appid: dlcId,
-                name: dlcData.name || `DLC ${dlcId}`,
-                header_image: dlcData.header_image || null,
-                price_overview: dlcData.price_overview || null,
-                is_free: dlcData.is_free || false
-            };
+            
+            // Vérifier si le DLC est disponible dans la région
+            if (dlcData.type === 'dlc' || dlcData.type === 'demo' || dlcData.type === 'advertising') {
+                return {
+                    appid: dlcId,
+                    name: dlcData.name || `DLC ${dlcId}`,
+                    header_image: dlcData.header_image || null,
+                    price_overview: dlcData.price_overview || null,
+                    is_free: dlcData.is_free || false,
+                    type: dlcData.type || 'dlc',
+                    error: false,
+                    last_attempt: Date.now()
+                };
+            } else {
+                console.warn(`DLC ${dlcId}: Type invalide (${dlcData.type})`);
+                return createFallbackDLC(dlcId, true);
+            }
+        } else {
+            console.warn(`DLC ${dlcId}: API returned success=false`);
+            return createFallbackDLC(dlcId, true);
         }
-        
-        return null;
     } catch (error) {
-        console.warn(`Échec de la récupération pour DLC ${dlcId}: ${error.message}`);
+        console.warn(`DLC ${dlcId}: ${error.message}`);
         return null;
     }
 }
 
-async function fetchSingleDLC(dlcId) {
-    // Vérifier le cache d'abord
-    const cached = GLOBAL_CACHE.getDLC(dlcId);
-    if (cached) {
-        return cached;
+async function fetchSingleDLC(dlcId, forceRetry = false) {
+    // Vérifier le cache d'abord (sauf si forceRetry)
+    if (!forceRetry) {
+        const cached = GLOBAL_CACHE.getDLC(dlcId);
+        if (cached) {
+            // Ne pas utiliser le cache si l'erreur est récente (moins de 5 minutes)
+            if (cached.error && Date.now() - cached.last_attempt < 300000) {
+                // Continuer pour réessayer
+            } else if (!cached.error) {
+                return cached;
+            }
+        }
     }
     
     // Essayer avec les proxies d'abord
@@ -574,6 +624,7 @@ async function fetchSingleDLC(dlcId) {
             GLOBAL_CACHE.setDLC(dlcId, result);
             return result;
         }
+        await new Promise(resolve => setTimeout(resolve, 200)); // Pause entre les proxies
     }
     
     // Essayer sans proxy si activé
@@ -600,13 +651,13 @@ async function loadDLCsProgressively(dlcIds, onProgress, onBatchComplete) {
     const batchSize = CONFIG.dlcBatchSize;
     const dlcDetails = [];
     
-    // Récupérer les DLC déjà en cache d'abord
+    // Récupérer les DLC déjà en cache d'abord (sauf ceux en erreur récente)
     const cachedResults = [];
     const remainingIds = [];
     
     for (const dlcId of dlcIds) {
         const cached = GLOBAL_CACHE.getDLC(dlcId);
-        if (cached) {
+        if (cached && !cached.error) {
             cachedResults.push(cached);
         } else {
             remainingIds.push(dlcId);
@@ -665,7 +716,7 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
         return cachedGame;
     }
     
-    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr`;
+    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr&filters=basic,price_overview`;
     
     // Essayer avec chaque proxy
     for (const proxy of CONFIG.proxies) {
@@ -673,8 +724,10 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
             const url = proxy + encodeURIComponent(steamUrl);
             const response = await fetchWithTimeoutAndRetry(url, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'fr-FR,fr;q=0.9',
+                    'Referer': 'https://store.steampowered.com/'
                 },
                 timeout: timeout
             });
@@ -731,8 +784,10 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
         try {
             const response = await fetchWithTimeoutAndRetry(steamUrl, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'fr-FR,fr;q=0.9',
+                    'Referer': 'https://store.steampowered.com/'
                 },
                 timeout: timeout
             });
@@ -839,7 +894,7 @@ async function fetchBasicGameData(appId) {
         };
     }
     
-    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr`;
+    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr&filters=basic,price_overview`;
     
     // Essayer avec chaque proxy
     for (const proxy of CONFIG.proxies) {
@@ -847,8 +902,10 @@ async function fetchBasicGameData(appId) {
             const url = proxy + encodeURIComponent(steamUrl);
             const response = await fetchWithTimeoutAndRetry(url, {
                 headers: { 
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'fr-FR,fr;q=0.9',
+                    'Referer': 'https://store.steampowered.com/'
                 },
                 timeout: 6000
             });
@@ -888,8 +945,10 @@ async function fetchBasicGameData(appId) {
         try {
             const response = await fetchWithTimeoutAndRetry(steamUrl, {
                 headers: { 
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'application/json'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json',
+                    'Accept-Language': 'fr-FR,fr;q=0.9',
+                    'Referer': 'https://store.steampowered.com/'
                 },
                 timeout: 6000
             });
@@ -1104,6 +1163,99 @@ function updateDLCBadge(appId, loaded, total) {
     }
 }
 
+async function retrySingleDLC(gameAppId, dlcId) {
+    showStatus(`Nouvelle tentative pour DLC ${dlcId}...`, 'loading');
+    
+    const gameIndex = games.findIndex(g => 
+        String(g.appid) === String(gameAppId) || 
+        String(g.steam_appid) === String(gameAppId)
+    );
+    
+    if (gameIndex === -1) {
+        showStatus('Jeu non trouvé', 'error');
+        return;
+    }
+    
+    const game = games[gameIndex];
+    const dlcIndex = game.dlc_data?.findIndex(d => String(d.appid) === String(dlcId));
+    
+    if (dlcIndex === -1 || !game.dlc_data) {
+        showStatus('DLC non trouvé', 'error');
+        return;
+    }
+    
+    // Marquer le DLC comme en cours de chargement
+    game.dlc_data[dlcIndex].loading = true;
+    
+    // Rafraîchir l'affichage si le panneau est ouvert
+    const expandedRow = document.getElementById(`expanded-${gameAppId}`);
+    if (expandedRow && expandedRow.classList.contains('show')) {
+        const panelContent = createVersionsPanel(game, {
+            mainGame: {
+                type: 'main',
+                name: game.name,
+                appid: gameAppId,
+                price: game.price_initial_cents ? {
+                    initial: game.price_initial_cents,
+                    final: game.price_final_cents,
+                    discount_percent: game.discount_percent
+                } : null,
+                is_free: game.is_free
+            },
+            dlcs: game.dlc_data || [],
+            allDlcIds: game.dlc_ids || [],
+            totalDlcCount: game.dlc_count || 0,
+            loadedDlcCount: game.loaded_dlc_count || 0,
+            hasMoreDLC: false
+        }, expandedRow);
+        expandedRow.innerHTML = '';
+        expandedRow.appendChild(panelContent);
+    }
+    
+    // Réessayer de récupérer le DLC
+    const newDLCData = await fetchSingleDLC(dlcId, true);
+    
+    // Mettre à jour les données du DLC
+    game.dlc_data[dlcIndex] = newDLCData;
+    game.dlc_data[dlcIndex].loading = false;
+    
+    // Si le DLC n'a plus d'erreur, recalculer le nombre de DLC chargés
+    if (!newDLCData.error) {
+        game.loaded_dlc_count = game.dlc_data.filter(d => !d.error).length;
+    }
+    
+    // Sauvegarder
+    saveGamesToLocalStorage();
+    updateDLCBadge(gameAppId, game.loaded_dlc_count, game.dlc_count);
+    
+    // Rafraîchir l'affichage
+    if (expandedRow && expandedRow.classList.contains('show')) {
+        const panelContent = createVersionsPanel(game, {
+            mainGame: {
+                type: 'main',
+                name: game.name,
+                appid: gameAppId,
+                price: game.price_initial_cents ? {
+                    initial: game.price_initial_cents,
+                    final: game.price_final_cents,
+                    discount_percent: game.discount_percent
+                } : null,
+                is_free: game.is_free
+            },
+            dlcs: game.dlc_data || [],
+            allDlcIds: game.dlc_ids || [],
+            totalDlcCount: game.dlc_count || 0,
+            loadedDlcCount: game.loaded_dlc_count || 0,
+            hasMoreDLC: false
+        }, expandedRow);
+        expandedRow.innerHTML = '';
+        expandedRow.appendChild(panelContent);
+    }
+    
+    showStatus(newDLCData.error ? 'Échec de la récupération du DLC' : 'DLC récupéré avec succès', 
+               newDLCData.error ? 'error' : 'success');
+}
+
 function formatPriceForDisplay(priceCents) {
     if (priceCents === null || priceCents === undefined || priceCents === 0) return '—';
     return (priceCents / 100).toFixed(2) + '€';
@@ -1214,24 +1366,40 @@ function createVersionsPanel(game, versionsData, expandedRow) {
             const dlcItem = document.createElement('div');
             dlcItem.className = 'version-item dlc';
             
-            const nameSpan = document.createElement('div');
-            nameSpan.className = 'version-name';
-            nameSpan.textContent = dlc.name || `DLC ID: ${dlc.appid}`;
+            const nameContainer = document.createElement('div');
+            nameContainer.className = 'version-name';
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = dlc.name || `DLC ${dlc.appid}`;
             
             if (dlc.error) {
-                nameSpan.style.color = '#ffa366';
-                nameSpan.title = 'Erreur de chargement';
+                nameSpan.style.color = '#ff8c42';
+                nameSpan.title = 'Erreur de chargement - Cliquez pour réessayer';
+                
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'dlc-retry-btn';
+                retryBtn.textContent = 'Réessayer';
+                retryBtn.onclick = () => retrySingleDLC(game.appid, dlc.appid);
+                
+                nameContainer.appendChild(nameSpan);
+                nameContainer.appendChild(retryBtn);
+            } else {
+                nameContainer.appendChild(nameSpan);
             }
             
             const priceContainer = document.createElement('div');
             priceContainer.className = 'version-price-container';
             
-            if (dlc.error) {
-                const errorSpan = document.createElement('span');
-                errorSpan.className = 'price-na';
-                errorSpan.style.color = '#ffa366';
-                errorSpan.textContent = 'Erreur';
-                priceContainer.appendChild(errorSpan);
+            if (dlc.loading) {
+                const loadingSpan = document.createElement('span');
+                loadingSpan.className = 'price-na';
+                loadingSpan.innerHTML = '<span class="loading" style="width: 12px; height: 12px; margin-right: 4px;"></span>Chargement...';
+                priceContainer.appendChild(loadingSpan);
+            } else if (dlc.error) {
+                const errorBadge = document.createElement('span');
+                errorBadge.className = 'version-error';
+                errorBadge.textContent = 'ERREUR';
+                priceContainer.appendChild(errorBadge);
             } else if (dlc.is_free) {
                 const freeBadge = document.createElement('span');
                 freeBadge.className = 'version-free';
@@ -1270,7 +1438,7 @@ function createVersionsPanel(game, versionsData, expandedRow) {
                 priceContainer.appendChild(naPrice);
             }
             
-            dlcItem.appendChild(nameSpan);
+            dlcItem.appendChild(nameContainer);
             dlcItem.appendChild(priceContainer);
             dlcSection.appendChild(dlcItem);
         });
@@ -1279,11 +1447,20 @@ function createVersionsPanel(game, versionsData, expandedRow) {
         
         // Message de chargement complet
         if (versionsData.loadedDlcCount === versionsData.totalDlcCount && versionsData.totalDlcCount > 0) {
-            const allLoadedMsg = document.createElement('div');
-            allLoadedMsg.className = 'loading-versions';
-            allLoadedMsg.style.cssText = 'color: #66c0f4; text-align: center; margin-top: 10px; font-size: 12px;';
-            allLoadedMsg.textContent = '✓ Tous les DLC sont chargés';
-            container.appendChild(allLoadedMsg);
+            const errorCount = versionsData.dlcs.filter(d => d.error).length;
+            if (errorCount === 0) {
+                const allLoadedMsg = document.createElement('div');
+                allLoadedMsg.className = 'loading-versions';
+                allLoadedMsg.style.cssText = 'color: #66c0f4; text-align: center; margin-top: 10px; font-size: 12px;';
+                allLoadedMsg.textContent = '✓ Tous les DLC sont chargés';
+                container.appendChild(allLoadedMsg);
+            } else {
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'loading-versions';
+                errorMsg.style.cssText = 'color: #ff8c42; text-align: center; margin-top: 10px; font-size: 12px;';
+                errorMsg.textContent = `✓ ${versionsData.loadedDlcCount - errorCount} DLC chargés, ${errorCount} en erreur`;
+                container.appendChild(errorMsg);
+            }
         }
     } else {
         const noDlcSection = document.createElement('div');
@@ -1356,10 +1533,13 @@ async function fetchAndAddGame(appId){
                         
                         games[gameIndex].dlc_data = dlcDetails;
                         games[gameIndex].dlc_loading = false;
-                        games[gameIndex].loaded_dlc_count = dlcDetails.length;
+                        games[gameIndex].loaded_dlc_count = dlcDetails.filter(d => !d.error).length;
                         saveGamesToLocalStorage();
                         
-                        showStatus(`${basicGameData.name} - ${dlcDetails.length} DLC chargés`, 'success');
+                        const errorCount = dlcDetails.filter(d => d.error).length;
+                        const successCount = dlcDetails.length - errorCount;
+                        showStatus(`${basicGameData.name} - ${successCount} DLC chargés, ${errorCount} erreur(s)`, 
+                                   errorCount > 0 ? 'warning' : 'success');
                     }
                 }, 100);
             }
@@ -1424,17 +1604,27 @@ function addGameRow(game){
     if (game.dlc_count > 0) {
         const dlcBadge = document.createElement('span');
         dlcBadge.className = 'dlc-progress-badge';
-        dlcBadge.textContent = game.loaded_dlc_count < game.dlc_count ? 
-            `${game.loaded_dlc_count}/${game.dlc_count}` : game.dlc_count;
-        dlcBadge.style.background = game.loaded_dlc_count < game.dlc_count ? '#2a4758' : '#1a7f57';
-        expandBtn.appendChild(dlcBadge);
         
-        // Indicateur de chargement si DLC en cours de chargement
-        if (game.dlc_loading || game.loaded_dlc_count < game.dlc_count) {
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.className = 'dlc-loading-indicator';
-            expandBtn.appendChild(loadingIndicator);
+        // Compter les DLC sans erreur
+        const loadedWithoutError = game.dlc_data ? game.dlc_data.filter(d => !d.error).length : 0;
+        const displayCount = game.loaded_dlc_count < game.dlc_count ? 
+            `${loadedWithoutError}/${game.dlc_count}` : loadedWithoutError;
+        
+        dlcBadge.textContent = displayCount;
+        
+        if (loadedWithoutError < game.dlc_count) {
+            dlcBadge.style.background = '#2a4758';
+            // Indicateur de chargement si DLC en cours de chargement
+            if (game.dlc_loading) {
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.className = 'dlc-loading-indicator';
+                expandBtn.appendChild(loadingIndicator);
+            }
+        } else {
+            dlcBadge.style.background = '#1a7f57';
         }
+        
+        expandBtn.appendChild(dlcBadge);
     }
     
     const nameCell = document.createElement('div'); 
@@ -1468,8 +1658,9 @@ function addGameRow(game){
         metaText += ` | Type: ${game.type}`;
     }
     if (game.dlc_count > 0) {
-        metaText += ` | DLC: ${game.loaded_dlc_count || 0}/${game.dlc_count}`;
-        if (game.dlc_loading || game.loaded_dlc_count < game.dlc_count) {
+        const loadedWithoutError = game.dlc_data ? game.dlc_data.filter(d => !d.error).length : 0;
+        metaText += ` | DLC: ${loadedWithoutError || 0}/${game.dlc_count}`;
+        if (game.dlc_loading || loadedWithoutError < game.dlc_count) {
             metaText += ' (chargement...)';
         }
     }
@@ -1796,10 +1987,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
                     );
                     
                     game.dlc_data = dlcDetails;
-                    game.loaded_dlc_count = dlcDetails.length;
+                    game.loaded_dlc_count = dlcDetails.filter(d => !d.error).length;
                     game.dlc_loading = false;
                     saveGamesToLocalStorage();
-                    updateDLCBadge(game.appid, dlcDetails.length, game.dlc_count);
+                    updateDLCBadge(game.appid, game.loaded_dlc_count, game.dlc_count);
                 }
             });
         }, 1000);
@@ -1833,7 +2024,8 @@ window.SteamAPI = {
     getSteamGameData: getSteamGameDataWithPreload,
     loadDLCsProgressively,
     fetchGameDataWithPreload,
-    fetchGameVersions
+    fetchGameVersions,
+    retrySingleDLC
 };
     </script>
 </body>
