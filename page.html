@@ -209,6 +209,23 @@
             background: #357a5c;
         }
 
+        .refresh-btn {
+            background: #2a5c47;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 4px;
+            margin-left: 4px;
+            align-self: flex-start;
+        }
+        
+        .refresh-btn:hover {
+            background: #357a5c;
+        }
+
         .menu-container {
             position: relative;
             display: flex;
@@ -487,6 +504,26 @@
             background:#1b2838;
         }
         
+        button#refreshAllBtn {
+            padding:8px 12px;
+            border-radius:6px;
+            border:1px solid #2a4758;
+            background:transparent;
+            color:#e6f7f0;
+            font-weight:700;
+            cursor:pointer;
+            transition: all 0.2s;
+        }
+        
+        button#refreshAllBtn:hover {
+            background:rgba(42, 71, 88, 0.3);
+        }
+        
+        button#refreshAllBtn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
         button#clearBtn {
             padding:8px 12px;
             border-radius:6px;
@@ -520,13 +557,13 @@
             min-height: 24px;
         }
         
-        .version-indicator {
-            font-size: 11px;
-            color: #66c0f4;
-            background: rgba(102, 192, 244, 0.1);
-            padding: 2px 6px;
-            border-radius: 3px;
-            margin-left: 8px;
+        .steam-api-container {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(11, 22, 32, 0.7);
+            border-radius: 8px;
+            border: 1px solid #2a4758;
+            animation: fadeIn 0.5s ease-in;
         }
         
         @keyframes spin {
@@ -585,27 +622,37 @@
     </style>
 </head>
 <body>
-    <!-- Header fixe -->
     <div class="header-container">
         <div class="container">
             <div class="header-content">
                 <div class="header-title">
                     <h1>Liste de jeux Steam</h1>
                     <div class="controls-container">
-                        <input id="gameIdInput" type="number" placeholder="Entrez l'ID Steam (ex: 227300)" />
+                        <input id="gameIdInput" type="number" placeholder="Entrez l'ID Steam" />
                         <button id="addGameBtn">Ajouter un jeu</button>
+                        <button id="refreshAllBtn">Rafraîchir tout</button>
                         <button id="clearBtn">Effacer tout</button>
                         <div class="selection-stats" id="selectionStats"></div>
                         <div id="status"></div>
                     </div>
                 </div>
-                <!-- Conteneur Pepe -->
                 <div class="pepe-container">
                     <img id="pepeGif" src="pepe-the-frog-sitting-chillin.gif" class="pepe-gif" alt="Pepe status">
                 </div>
             </div>
-            
-            <!-- En-têtes des colonnes -->
+            <div class="steam-api-container">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <input id="steamIdInput" type="text" placeholder="Entrez votre SteamID 64" 
+                           style="flex: 1; min-width: 200px; padding: 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.05); color:inherit;" />
+                    <button id="fetchSteamGamesBtn" style="padding:8px 12px; border-radius:6px; border:0; background:#1a7f57; color:#e6f7f0; font-weight:700; cursor:pointer; transition: all 0.2s;">
+                        Récupérer mes jeux Steam
+                    </button>
+                    <button id="fetchSelectedGamesBtn" style="padding:8px 12px; border-radius:6px; border:1px solid #2a4758; background:transparent; color:#e6f7f0; font-weight:700; cursor:pointer; transition: all 0.2s;">
+                        Récupérer les jeux sélectionnés
+                    </button>
+                    <div id="steamApiStatus" style="font-size: 13px; color: #9fb0bd; margin-left: auto;"></div>
+                </div>
+            </div>
             <div class="grid-header">
                 <div class="grid" id="gridHeaders">
                     <div class="header"></div>
@@ -625,16 +672,11 @@
             </div>
         </div>
     </div>
-
-    <!-- Contenu principal avec défilement -->
     <div class="container games-container">
         <div class="grid" id="gamesGrid">
-            <!-- Les jeux seront ajoutés ici -->
         </div>
     </div>
-
     <script>
-// Configuration optimisée pour la vitesse
 const CONFIG = {
     gameTimeout: 6000,
     dlcTimeout: 5000,
@@ -651,11 +693,10 @@ const CONFIG = {
     dlcDelay: 200,
     directFallback: true
 };
-
-// URLs des GIFs Pepe
+const STEAM_API_KEY = 'FD28F5EF4A27C1F437A81DFDD937C31D';
 const PEPE_GIFS = {
-    idle: 'pepe-the-frog-sitting-chillin.gif', // Pepe chillin
-    loading: 'pepe-pepe-chat.gif' // Pepe chat (recherche)
+    idle: 'pepe-the-frog-sitting-chillin.gif',
+    loading: 'pepe-pepe-chat.gif'
 };
 
 // Variables pour suivre l'état du chargement
@@ -739,23 +780,7 @@ const GLOBAL_CACHE = {
 
 setInterval(() => GLOBAL_CACHE.clearOldEntries(), 300000);
 
-const games = [
-    {
-        header_image: 'https://cdn.cloudflare.steamstatic.com/steam/apps/227300/header.jpg',
-        name: 'Loading error',
-        price_initial_cents: 1,
-        price_final_cents: 1,
-        discount_percent: 1,
-        appid: 1,
-        steam_appid: 1,
-        is_free: false,
-        last_updated: new Date().toISOString(),
-        selected: false,
-        versions: [],
-        selectedVersion: null,
-        selectedVersionData: null // Nouveau champ pour stocker les données de la version sélectionnée
-    }
-];
+const games = [];
 
 // Fonctions de gestion des GIFs Pepe
 function updatePepeGif() {
@@ -934,16 +959,9 @@ async function fetchSingleDLC(dlcId, forceRetry = false) {
     return fallback;
 }
 
-// NOUVELLE FONCTION : Récupérer les données d'un package
-async function fetchPackageData(packageId) {
-    if (!packageId) return null;
-    
-    const cached = GLOBAL_CACHE.getPackage(packageId);
-    if (cached) {
-        return cached;
-    }
-    
-    const steamUrl = `https://store.steampowered.com/api/packagedetails?packageids=${packageId}&cc=fr&l=fr`;
+// MODIFIÉ : Fonction pour récupérer les versions/éditions du jeu depuis l'API Steam
+async function fetchGameVersionsFromAPI(appId) {
+    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr`;
     
     for (const proxy of CONFIG.proxies) {
         try {
@@ -970,18 +988,84 @@ async function fetchPackageData(packageId) {
             
             const data = await response.json();
             
-            if (!data[packageId]) {
+            if (!data[appId]) {
                 continue;
             }
             
-            const packageData = data[packageId];
+            const gameData = data[appId];
             
-            if (!packageData.success) {
+            if (!gameData.success) {
                 continue;
             }
             
-            GLOBAL_CACHE.setPackage(packageId, packageData.data);
-            return packageData.data;
+            // Extraire les versions depuis le champ "package_groups"
+            const versions = [];
+            
+            if (gameData.data.package_groups && Array.isArray(gameData.data.package_groups)) {
+                // Parcourir tous les groupes de packages
+                gameData.data.package_groups.forEach(group => {
+                    if (group.subs && Array.isArray(group.subs)) {
+                        group.subs.forEach((sub, index) => {
+                            // Extraire le nom de la version depuis option_text
+                            let versionName = sub.option_text || `Version ${sub.packageid}`;
+                            
+                            // Nettoyer le nom (enlever le prix si présent)
+                            const priceMatch = versionName.match(/(.*)\s+-\s+[\d,]+\s*€/);
+                            if (priceMatch && priceMatch[1]) {
+                                versionName = priceMatch[1].trim();
+                            } else {
+                                // Essayer un autre format
+                                const priceIndex = versionName.lastIndexOf(' - ');
+                                if (priceIndex !== -1) {
+                                    const potentialPrice = versionName.substring(priceIndex + 3);
+                                    // Vérifier si c'est un prix (contient €)
+                                    if (potentialPrice.includes('€')) {
+                                        versionName = versionName.substring(0, priceIndex).trim();
+                                    }
+                                }
+                            }
+                            
+                            // Sélectionner la première version (Standard Edition) par défaut
+                            const isFirstVersion = index === 0;
+                            
+                            versions.push({
+                                packageid: sub.packageid,
+                                name: versionName,
+                                price_in_cents_with_discount: sub.price_in_cents_with_discount,
+                                percent_savings: sub.percent_savings,
+                                is_free_license: sub.is_free_license,
+                                option_text: sub.option_text,
+                                selected: isFirstVersion // La première version est sélectionnée par défaut
+                            });
+                        });
+                    }
+                });
+            }
+            
+            // Si aucune version trouvée dans package_groups, chercher dans d'autres endroits
+            if (versions.length === 0) {
+                // Essayer de trouver des packages dans price_overview
+                if (gameData.data.price_overview) {
+                    versions.push({
+                        packageid: appId,
+                        name: gameData.data.name || 'Édition Standard',
+                        price_in_cents_with_discount: gameData.data.price_overview.final,
+                        percent_savings: gameData.data.price_overview.discount_percent,
+                        is_free_license: gameData.data.is_free || false,
+                        option_text: `${gameData.data.name} - ${(gameData.data.price_overview.final/100).toFixed(2)}€`,
+                        selected: true // Sélectionnée par défaut
+                    });
+                }
+            }
+            
+            // Trier les versions par prix (croissant)
+            versions.sort((a, b) => {
+                const priceA = a.price_in_cents_with_discount || 0;
+                const priceB = b.price_in_cents_with_discount || 0;
+                return priceA - priceB;
+            });
+            
+            return versions;
             
         } catch (error) {
             continue;
@@ -1008,274 +1092,78 @@ async function fetchPackageData(packageId) {
             
             if (response.ok) {
                 const data = await response.json();
-                if (data[packageId]?.success) {
-                    GLOBAL_CACHE.setPackage(packageId, data[packageId].data);
-                    return data[packageId].data;
-                }
-            }
-        } catch (error) {
-        }
-    }
-    
-    return null;
-}
-
-// MODIFIÉ : Récupérer les packages associés à un jeu
-async function fetchGamePackages(appId) {
-    startLoading();
-    try {
-        // Base de données de packages connus
-        const knownPackages = {
-            '1551360': [ // Forza Horizon 5
-                { id: 547831, name: 'Forza Horizon 5 - Standard Edition' },
-                { id: 596608, name: 'Forza Horizon 5 - Deluxe Edition' },
-                { id: 596609, name: 'Forza Horizon 5 - Premium Edition' }
-            ],
-            '227300': [ // Euro Truck Simulator 2
-                { id: 227301, name: 'Euro Truck Simulator 2 - Going East!' },
-                { id: 227302, name: 'Euro Truck Simulator 2 - Scandinavia' }
-            ],
-            '730': [ // Counter-Strike: Global Offensive
-                { id: 10539, name: 'Counter-Strike: Global Offensive - Prime Status Upgrade' }
-            ],
-            '578080': [ // PUBG
-                { id: 1089550, name: 'PLAYERUNKNOWN\'S BATTLEGROUNDS - Survivor Pass: Vikendi' }
-            ],
-            '252950': [ // Rocket League
-                { id: 358692, name: 'Rocket League® - Supersonic Fury DLC Pack' }
-            ],
-            '271590': [ // Grand Theft Auto V
-                { id: 349830, name: 'Grand Theft Auto V - Great White Shark Cash Card' },
-                { id: 349831, name: 'Grand Theft Auto V - Whale Shark Cash Card' },
-                { id: 349832, name: 'Grand Theft Auto V - Megalodon Shark Cash Card' }
-            ]
-        };
-        
-        const packages = knownPackages[appId] || [];
-        const packageDetails = [];
-        
-        // Récupérer les détails de chaque package
-        for (const pkg of packages) {
-            try {
-                const packageData = await fetchPackageData(pkg.id);
-                if (packageData) {
-                    packageDetails.push({
-                        packageid: pkg.id,
-                        name: packageData.name || pkg.name,
-                        price_in_cents_with_discount: packageData.price?.final || 0,
-                        percent_savings: packageData.price?.discount_percent || 0,
-                        is_free_license: packageData.price?.final === 0 || false,
-                        selected: false
+                
+                if (data[appId]?.success) {
+                    const gameData = data[appId].data;
+                    const versions = [];
+                    
+                    if (gameData.package_groups && Array.isArray(gameData.package_groups)) {
+                        gameData.package_groups.forEach(group => {
+                            if (group.subs && Array.isArray(group.subs)) {
+                                group.subs.forEach((sub, index) => {
+                                    let versionName = sub.option_text || `Version ${sub.packageid}`;
+                                    
+                                    // Nettoyer le nom
+                                    const priceMatch = versionName.match(/(.*)\s+-\s+[\d,]+\s*€/);
+                                    if (priceMatch && priceMatch[1]) {
+                                        versionName = priceMatch[1].trim();
+                                    } else {
+                                        const priceIndex = versionName.lastIndexOf(' - ');
+                                        if (priceIndex !== -1) {
+                                            const potentialPrice = versionName.substring(priceIndex + 3);
+                                            if (potentialPrice.includes('€')) {
+                                                versionName = versionName.substring(0, priceIndex).trim();
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Sélectionner la première version (Standard Edition) par défaut
+                                    const isFirstVersion = index === 0;
+                                    
+                                    versions.push({
+                                        packageid: sub.packageid,
+                                        name: versionName,
+                                        price_in_cents_with_discount: sub.price_in_cents_with_discount,
+                                        percent_savings: sub.percent_savings,
+                                        is_free_license: sub.is_free_license,
+                                        option_text: sub.option_text,
+                                        selected: isFirstVersion // La première version est sélectionnée par défaut
+                                    });
+                                });
+                            }
+                        });
+                    }
+                    
+                    if (versions.length === 0 && gameData.price_overview) {
+                        versions.push({
+                            packageid: appId,
+                            name: gameData.name || 'Édition Standard',
+                            price_in_cents_with_discount: gameData.price_overview.final,
+                            percent_savings: gameData.price_overview.discount_percent,
+                            is_free_license: gameData.is_free || false,
+                            option_text: `${gameData.name} - ${(gameData.price_overview.final/100).toFixed(2)}€`,
+                            selected: true // Sélectionnée par défaut
+                        });
+                    }
+                    
+                    // Trier les versions par prix
+                    versions.sort((a, b) => {
+                        const priceA = a.price_in_cents_with_discount || 0;
+                        const priceB = b.price_in_cents_with_discount || 0;
+                        return priceA - priceB;
                     });
+                    
+                    return versions;
                 }
-            } catch (error) {
-                // Si on ne peut pas récupérer les données, on utilise les infos de base
-                packageDetails.push({
-                    packageid: pkg.id,
-                    name: pkg.name,
-                    price_in_cents_with_discount: 0,
-                    percent_savings: 0,
-                    is_free_license: false,
-                    selected: false
-                });
-            }
-        }
-        
-        return packageDetails;
-    } finally {
-        stopLoading();
-    }
-}
-
-// NOUVELLE FONCTION : Mettre à jour l'affichage du jeu avec les données de la version sélectionnée
-function updateGameDisplayWithVersion(game, versionData) {
-    const gameIndex = games.findIndex(g => g.appid === game.appid);
-    if (gameIndex === -1) return;
-    
-    // Stocker les données de la version sélectionnée
-    games[gameIndex].selectedVersionData = versionData;
-    
-    // Mettre à jour l'affichage
-    refreshGrid();
-    saveGamesToLocalStorage();
-}
-
-// MODIFIÉ : Fonction pour sélectionner une version
-function selectVersion(gameAppId, version) {
-    const gameIndex = games.findIndex(g => g.appid === gameAppId);
-    if (gameIndex === -1) return;
-    
-    games[gameIndex].selectedVersion = version.packageid;
-    games[gameIndex].selectedVersionData = version;
-    
-    // Mettre à jour l'affichage
-    refreshGrid();
-    saveGamesToLocalStorage();
-    updateSelectionStats();
-}
-
-// MODIFIÉ : Fonction pour désélectionner une version
-function deselectVersion(gameAppId) {
-    const gameIndex = games.findIndex(g => g.appid === gameAppId);
-    if (gameIndex === -1) return;
-    
-    games[gameIndex].selectedVersion = null;
-    games[gameIndex].selectedVersionData = null;
-    
-    // Mettre à jour l'affichage
-    refreshGrid();
-    saveGamesToLocalStorage();
-    updateSelectionStats();
-}
-
-// MODIFIÉ : Récupérer les versions du jeu
-async function fetchGameVersions(appId, onProgress) {
-    startLoading();
-    try {
-        const gameIndex = games.findIndex(g => 
-            String(g.appid) === String(appId) || 
-            String(g.steam_appid) === String(appId)
-        );
-        
-        if (gameIndex === -1) {
-            return { 
-                mainGame: null, 
-                dlcs: [], 
-                allDlcIds: [],
-                totalDlcCount: 0,
-                loadedDlcCount: 0,
-                error: 'Jeu non trouvé',
-                versions: []
-            };
-        }
-        
-        const game = games[gameIndex];
-        
-        // Si on n'a pas encore chargé les versions, on les charge
-        if (!game.versions || game.versions.length === 0) {
-            game.versions = await fetchGamePackages(appId);
-            saveGamesToLocalStorage();
-        }
-        
-        // Chargement des DLC
-        if (game.dlc_ids && game.dlc_ids.length > 0 && !game.dlc_loading) {
-            game.dlc_loading = true;
-            
-            const dlcDetails = await loadDLCsProgressively(
-                game.dlc_ids,
-                (loaded, total) => {
-                    game.loaded_dlc_count = loaded;
-                    if (onProgress) onProgress(loaded, total);
-                },
-                (batch) => {
-                    if (!game.dlc_data) game.dlc_data = [];
-                    game.dlc_data.push(...batch);
-                    updateDLCBadge(appId, game.loaded_dlc_count, game.dlc_count);
-                }
-            );
-            
-            game.dlc_data = dlcDetails;
-            game.dlc_loading = false;
-            saveGamesToLocalStorage();
-        }
-        
-        return {
-            mainGame: {
-                type: 'main',
-                name: game.name,
-                appid: appId,
-                price: game.price_initial_cents ? {
-                    initial: game.price_initial_cents,
-                    final: game.price_final_cents,
-                    discount_percent: game.discount_percent
-                } : null,
-                is_free: game.is_free,
-                versions: game.versions || [],
-                selectedVersion: game.selectedVersion,
-                selectedVersionData: game.selectedVersionData
-            },
-            dlcs: game.dlc_data || [],
-            allDlcIds: game.dlc_ids || [],
-            totalDlcCount: game.dlc_count || 0,
-            loadedDlcCount: game.loaded_dlc_count || 0,
-            hasMoreDLC: false
-        };
-        
-    } catch (error) {
-        return { 
-            mainGame: null, 
-            dlcs: [], 
-            allDlcIds: [],
-            totalDlcCount: 0,
-            loadedDlcCount: 0,
-            error: error.message,
-            versions: []
-        };
-    } finally {
-        stopLoading();
-    }
-}
-
-// Fonction pour charger les DLC progressivement
-async function loadDLCsProgressively(dlcIds, onProgress, onBatchComplete) {
-    if (!dlcIds || dlcIds.length === 0) {
-        onProgress(0, 0);
-        return [];
-    }
-    
-    const batchSize = CONFIG.dlcBatchSize;
-    const dlcDetails = [];
-    
-    const cachedResults = [];
-    const remainingIds = [];
-    
-    for (const dlcId of dlcIds) {
-        const cached = GLOBAL_CACHE.getDLC(dlcId);
-        if (cached && !cached.error) {
-            cachedResults.push(cached);
-        } else {
-            remainingIds.push(dlcId);
-        }
-    }
-    
-    dlcDetails.push(...cachedResults);
-    onProgress(dlcDetails.length, dlcIds.length);
-    
-    if (remainingIds.length === 0) {
-        return dlcDetails;
-    }
-    
-    const batches = [];
-    for (let i = 0; i < remainingIds.length; i += batchSize) {
-        batches.push(remainingIds.slice(i, i + batchSize));
-    }
-    
-    const batchPromises = batches.map(async (batch) => {
-        const batchPromises = batch.map(dlcId => fetchSingleDLC(dlcId));
-        
-        try {
-            const batchResults = await Promise.allSettled(batchPromises);
-            const successful = batchResults
-                .filter(r => r.status === 'fulfilled')
-                .map(r => r.value);
-            
-            dlcDetails.push(...successful);
-            onProgress(dlcDetails.length, dlcIds.length);
-            
-            if (onBatchComplete) {
-                onBatchComplete(successful);
             }
         } catch (error) {
-            // Ignorer les erreurs de lot
         }
-    });
+    }
     
-    await Promise.allSettled(batchPromises);
-    
-    return dlcDetails;
+    return [];
 }
 
-// Fonction pour récupérer les données du jeu principal
+// MODIFIÉ : Fonction pour récupérer les données du jeu principal AVEC les versions
 async function getSteamGameDataWithPreload(appId, options = {}) {
     const { 
         timeout = CONFIG.gameTimeout
@@ -1286,8 +1174,8 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
         return cachedGame;
     }
     
-    // On récupère seulement les données de base du jeu
-    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr&filters=basic,price_overview`;
+    // On récupère TOUTES les données du jeu pour avoir les versions
+    const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr`;
     
     for (const proxy of CONFIG.proxies) {
         try {
@@ -1326,11 +1214,73 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
             
             const dlcIds = gameData.data.dlc || [];
             
+            // Extraire les versions
+            const versions = [];
+            if (gameData.data.package_groups && Array.isArray(gameData.data.package_groups)) {
+                gameData.data.package_groups.forEach(group => {
+                    if (group.subs && Array.isArray(group.subs)) {
+                        group.subs.forEach((sub, index) => {
+                            let versionName = sub.option_text || `Version ${sub.packageid}`;
+                            
+                            // Nettoyer le nom
+                            const priceMatch = versionName.match(/(.*)\s+-\s+[\d,]+\s*€/);
+                            if (priceMatch && priceMatch[1]) {
+                                versionName = priceMatch[1].trim();
+                            } else {
+                                const priceIndex = versionName.lastIndexOf(' - ');
+                                if (priceIndex !== -1) {
+                                    const potentialPrice = versionName.substring(priceIndex + 3);
+                                    if (potentialPrice.includes('€')) {
+                                        versionName = versionName.substring(0, priceIndex).trim();
+                                    }
+                                }
+                            }
+                            
+                            // Sélectionner la première version (Standard Edition) par défaut
+                            const isFirstVersion = index === 0;
+                            
+                            versions.push({
+                                packageid: sub.packageid,
+                                name: versionName,
+                                price_in_cents_with_discount: sub.price_in_cents_with_discount,
+                                percent_savings: sub.percent_savings,
+                                is_free_license: sub.is_free_license,
+                                option_text: sub.option_text,
+                                selected: isFirstVersion // La première version est sélectionnée par défaut
+                            });
+                        });
+                    }
+                });
+            }
+            
+            // Trier les versions par prix
+            versions.sort((a, b) => {
+                const priceA = a.price_in_cents_with_discount || 0;
+                const priceB = b.price_in_cents_with_discount || 0;
+                return priceA - priceB;
+            });
+            
+            // Trouver la version sélectionnée (première version)
+            let selectedVersion = null;
+            let selectedVersionData = null;
+            if (versions.length > 0) {
+                const selected = versions.find(v => v.selected);
+                if (selected) {
+                    selectedVersion = selected.packageid;
+                    selectedVersionData = selected;
+                } else {
+                    // Si aucune version n'est marquée comme sélectionnée, prendre la première
+                    selectedVersion = versions[0].packageid;
+                    selectedVersionData = versions[0];
+                    versions[0].selected = true;
+                }
+            }
+            
             const extractedData = {
                 success: gameData.success,
                 data: {
                     name: gameData.data.name,
-                    steam_appid: gameData.data.steam_appid,
+                    steam_appid: gameData.data.steam_appid || appId,
                     required_age: gameData.data.required_age,
                     is_free: gameData.data.is_free,
                     controller_support: gameData.data.controller_support,
@@ -1338,9 +1288,9 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
                     dlc_ids: dlcIds,
                     dlc_count: dlcIds.length,
                     loaded_dlc_count: 0,
-                    versions: [], // On initialise un tableau vide, les versions seront chargées plus tard
-                    selectedVersion: null,
-                    selectedVersionData: null
+                    versions: versions, // On charge les versions directement
+                    selectedVersion: selectedVersion,
+                    selectedVersionData: selectedVersionData
                 },
                 dlc_data: [],
                 price_overview: gameData.data.price_overview || null,
@@ -1380,11 +1330,72 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
                     const gameData = data[appId].data;
                     const dlcIds = gameData.dlc || [];
                     
+                    // Extraire les versions
+                    const versions = [];
+                    if (gameData.package_groups && Array.isArray(gameData.package_groups)) {
+                        gameData.package_groups.forEach(group => {
+                            if (group.subs && Array.isArray(group.subs)) {
+                                group.subs.forEach((sub, index) => {
+                                    let versionName = sub.option_text || `Version ${sub.packageid}`;
+                                    
+                                    const priceMatch = versionName.match(/(.*)\s+-\s+[\d,]+\s*€/);
+                                    if (priceMatch && priceMatch[1]) {
+                                        versionName = priceMatch[1].trim();
+                                    } else {
+                                        const priceIndex = versionName.lastIndexOf(' - ');
+                                        if (priceIndex !== -1) {
+                                            const potentialPrice = versionName.substring(priceIndex + 3);
+                                            if (potentialPrice.includes('€')) {
+                                                versionName = versionName.substring(0, priceIndex).trim();
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Sélectionner la première version (Standard Edition) par défaut
+                                    const isFirstVersion = index === 0;
+                                    
+                                    versions.push({
+                                        packageid: sub.packageid,
+                                        name: versionName,
+                                        price_in_cents_with_discount: sub.price_in_cents_with_discount,
+                                        percent_savings: sub.percent_savings,
+                                        is_free_license: sub.is_free_license,
+                                        option_text: sub.option_text,
+                                        selected: isFirstVersion // La première version est sélectionnée par défaut
+                                    });
+                                });
+                            }
+                        });
+                    }
+                    
+                    // Trier les versions par prix
+                    versions.sort((a, b) => {
+                        const priceA = a.price_in_cents_with_discount || 0;
+                        const priceB = b.price_in_cents_with_discount || 0;
+                        return priceA - priceB;
+                    });
+                    
+                    // Trouver la version sélectionnée (première version)
+                    let selectedVersion = null;
+                    let selectedVersionData = null;
+                    if (versions.length > 0) {
+                        const selected = versions.find(v => v.selected);
+                        if (selected) {
+                            selectedVersion = selected.packageid;
+                            selectedVersionData = selected;
+                        } else {
+                            // Si aucune version n'est marquée comme sélectionnée, prendre la première
+                            selectedVersion = versions[0].packageid;
+                            selectedVersionData = versions[0];
+                            versions[0].selected = true;
+                        }
+                    }
+                    
                     const extractedData = {
                         success: gameData.success,
                         data: {
                             name: gameData.data.name,
-                            steam_appid: gameData.data.steam_appid,
+                            steam_appid: gameData.data.steam_appid || appId,
                             required_age: gameData.data.required_age,
                             is_free: gameData.data.is_free,
                             controller_support: gameData.data.controller_support,
@@ -1392,9 +1403,9 @@ async function getSteamGameDataWithPreload(appId, options = {}) {
                             dlc_ids: dlcIds,
                             dlc_count: dlcIds.length,
                             loaded_dlc_count: 0,
-                            versions: [],
-                            selectedVersion: null,
-                            selectedVersionData: null
+                            versions: versions,
+                            selectedVersion: selectedVersion,
+                            selectedVersionData: selectedVersionData
                         },
                         dlc_data: [],
                         price_overview: gameData.data.price_overview || null,
@@ -1457,33 +1468,37 @@ function hasGame(appid){
     return games.some(g => String(g.appid) === String(appid) || String(g.steam_appid) === String(appid));
 }
 
+// MODIFIÉ : Fonction pour récupérer les données de base du jeu (utilisée à l'ajout)
 async function fetchBasicGameData(appId) {
     startLoading();
     try {
-        const cached = GLOBAL_CACHE.getGame(appId);
-        if (cached) {
+        // Utiliser la fonction qui récupère TOUTES les données
+        const gameData = await getSteamGameDataWithPreload(appId);
+        
+        if (gameData) {
             return {
                 appid: appId,
-                steam_appid: cached.data.steam_appid || appId,
-                name: cached.data.name || `Jeu ID: ${appId}`,
-                header_image: cached.data.header_image || null,
-                is_free: cached.data.is_free || false,
-                price_initial_cents: cached.price_overview?.initial || null,
-                price_final_cents: cached.price_overview?.final || (cached.data.is_free ? 0 : null),
-                discount_percent: cached.price_overview?.discount_percent || 0,
-                dlc_count: cached.data.dlc_count || 0,
-                dlc_ids: cached.data.dlc_ids || [],
+                steam_appid: gameData.data.steam_appid || appId,
+                name: gameData.data.name || `Jeu ID: ${appId}`,
+                header_image: gameData.data.header_image || null,
+                is_free: gameData.data.is_free || false,
+                price_initial_cents: gameData.price_overview?.initial || null,
+                price_final_cents: gameData.price_overview?.final || (gameData.data.is_free ? 0 : null),
+                discount_percent: gameData.price_overview?.discount_percent || 0,
+                dlc_count: gameData.data.dlc_count || 0,
+                dlc_ids: gameData.data.dlc_ids || [],
                 loaded_dlc_count: 0,
                 dlc_data: [],
-                versions: cached.data.versions || [],
-                selectedVersion: cached.data.selectedVersion || null,
-                selectedVersionData: cached.data.selectedVersionData || null,
+                versions: gameData.data.versions || [], // Charger les versions directement
+                selectedVersion: gameData.data.selectedVersion || null,
+                selectedVersionData: gameData.data.selectedVersionData || null,
                 selected: false,
                 dlc_loading: false,
                 last_updated: new Date().toISOString()
             };
         }
         
+        // Fallback: essayer avec l'API basique
         const steamUrl = `https://store.steampowered.com/api/appdetails?appids=${appId}&cc=fr&l=fr&filters=basic,price_overview`;
         
         for (const proxy of CONFIG.proxies) {
@@ -1524,7 +1539,7 @@ async function fetchBasicGameData(appId) {
                             dlc_ids: gameData.dlc || [],
                             loaded_dlc_count: 0,
                             dlc_data: [],
-                            versions: [], // Versions vides pour l'instant
+                            versions: [], // Versions vides, seront chargées plus tard
                             selectedVersion: null,
                             selectedVersionData: null,
                             selected: false,
@@ -1574,7 +1589,7 @@ async function fetchBasicGameData(appId) {
                         dlc_ids: gameData.dlc || [],
                         loaded_dlc_count: 0,
                         dlc_data: [],
-                        versions: [], // Versions vides pour l'instant
+                        versions: [],
                         selectedVersion: null,
                         selectedVersionData: null,
                         selected: false,
@@ -1757,7 +1772,7 @@ function formatPriceForDisplay(priceCents) {
     return (priceCents / 100).toFixed(2) + '€';
 }
 
-// MODIFIÉ : Créer le panneau des versions
+// MODIFIÉ : Créer le panneau des versions (empêcher la fermeture automatique)
 function createVersionsPanel(game, versionsData, expandedRow) {
     const container = document.createElement('div');
     container.className = 'versions-container';
@@ -1794,7 +1809,7 @@ function createVersionsPanel(game, versionsData, expandedRow) {
         deselectButton.textContent = 'Désélectionner la version';
         deselectButton.onclick = () => {
             deselectVersion(game.appid);
-            // Rafraîchir le panneau
+            // Rafraîchir le panneau SANS le fermer
             const panelContent = createVersionsPanel(game, versionsData, expandedRow);
             expandedRow.innerHTML = '';
             expandedRow.appendChild(panelContent);
@@ -1818,7 +1833,7 @@ function createVersionsPanel(game, versionsData, expandedRow) {
             versionCheckbox.onchange = () => {
                 if (versionCheckbox.checked) {
                     selectVersion(game.appid, version);
-                    // Rafraîchir le panneau
+                    // Rafraîchir le panneau SANS le fermer
                     const panelContent = createVersionsPanel(game, versionsData, expandedRow);
                     expandedRow.innerHTML = '';
                     expandedRow.appendChild(panelContent);
@@ -1913,6 +1928,9 @@ function createVersionsPanel(game, versionsData, expandedRow) {
                             games[gameIndex].dlc_data[dlcIndex].selected = dlcCheckbox.checked;
                             saveGamesToLocalStorage();
                             updateSelectionStats();
+                            const panelContent = createVersionsPanel(game, versionsData, expandedRow);
+                            expandedRow.innerHTML = '';
+                            expandedRow.appendChild(panelContent);
                         }
                     }
                 };
@@ -2018,6 +2036,200 @@ function createVersionsPanel(game, versionsData, expandedRow) {
     return container;
 }
 
+// MODIFIÉ : Récupérer les packages associés à un jeu (juste un wrapper pour compatibilité)
+async function fetchGamePackages(appId) {
+    startLoading();
+    try {
+        return await fetchGameVersionsFromAPI(appId);
+    } finally {
+        stopLoading();
+    }
+}
+
+// MODIFIÉ : Fonction pour sélectionner une version (sans fermer le panneau)
+function selectVersion(gameAppId, version) {
+    const gameIndex = games.findIndex(g => g.appid === gameAppId);
+    if (gameIndex === -1) return;
+    
+    games[gameIndex].selectedVersion = version.packageid;
+    games[gameIndex].selectedVersionData = version;
+    
+    // Mettre à jour l'affichage sans fermer le panneau
+    refreshGrid();
+    saveGamesToLocalStorage();
+    updateSelectionStats();
+}
+
+// MODIFIÉ : Fonction pour désélectionner une version (sans fermer le panneau)
+function deselectVersion(gameAppId) {
+    const gameIndex = games.findIndex(g => g.appid === gameAppId);
+    if (gameIndex === -1) return;
+    
+    games[gameIndex].selectedVersion = null;
+    games[gameIndex].selectedVersionData = null;
+    
+    // Mettre à jour l'affichage sans fermer le panneau
+    refreshGrid();
+    saveGamesToLocalStorage();
+    updateSelectionStats();
+}
+
+// MODIFIÉ : Fonction pour charger les DLC progressivement
+async function loadDLCsProgressively(dlcIds, onProgress, onBatchComplete) {
+    if (!dlcIds || dlcIds.length === 0) {
+        onProgress(0, 0);
+        return [];
+    }
+    
+    const batchSize = CONFIG.dlcBatchSize;
+    const dlcDetails = [];
+    
+    const cachedResults = [];
+    const remainingIds = [];
+    
+    for (const dlcId of dlcIds) {
+        const cached = GLOBAL_CACHE.getDLC(dlcId);
+        if (cached && !cached.error) {
+            cachedResults.push(cached);
+        } else {
+            remainingIds.push(dlcId);
+        }
+    }
+    
+    dlcDetails.push(...cachedResults);
+    onProgress(dlcDetails.length, dlcIds.length);
+    
+    if (remainingIds.length === 0) {
+        return dlcDetails;
+    }
+    
+    const batches = [];
+    for (let i = 0; i < remainingIds.length; i += batchSize) {
+        batches.push(remainingIds.slice(i, i + batchSize));
+    }
+    
+    const batchPromises = batches.map(async (batch) => {
+        const batchPromises = batch.map(dlcId => fetchSingleDLC(dlcId));
+        
+        try {
+            const batchResults = await Promise.allSettled(batchPromises);
+            const successful = batchResults
+                .filter(r => r.status === 'fulfilled')
+                .map(r => r.value);
+            
+            dlcDetails.push(...successful);
+            onProgress(dlcDetails.length, dlcIds.length);
+            
+            if (onBatchComplete) {
+                onBatchComplete(successful);
+            }
+        } catch (error) {
+            // Ignorer les erreurs de lot
+        }
+    });
+    
+    await Promise.allSettled(batchPromises);
+    
+    return dlcDetails;
+}
+
+// MODIFIÉ : Récupérer les versions du jeu
+async function fetchGameVersions(appId, onProgress) {
+    startLoading();
+    try {
+        const gameIndex = games.findIndex(g => 
+            String(g.appid) === String(appId) || 
+            String(g.steam_appid) === String(appId)
+        );
+        
+        if (gameIndex === -1) {
+            return { 
+                mainGame: null, 
+                dlcs: [], 
+                allDlcIds: [],
+                totalDlcCount: 0,
+                loadedDlcCount: 0,
+                error: 'Jeu non trouvé',
+                versions: []
+            };
+        }
+        
+        const game = games[gameIndex];
+        
+        // Si on n'a pas encore chargé les versions, on les charge
+        if (!game.versions || game.versions.length === 0) {
+            game.versions = await fetchGamePackages(appId);
+            
+            // Sélectionner automatiquement la première version si aucune n'est sélectionnée
+            if (game.versions.length > 0 && !game.selectedVersion) {
+                const firstVersion = game.versions[0];
+                game.selectedVersion = firstVersion.packageid;
+                game.selectedVersionData = firstVersion;
+                game.versions[0].selected = true;
+            }
+            
+            saveGamesToLocalStorage();
+        }
+        
+        // Chargement des DLC
+        if (game.dlc_ids && game.dlc_ids.length > 0 && !game.dlc_loading) {
+            game.dlc_loading = true;
+            
+            const dlcDetails = await loadDLCsProgressively(
+                game.dlc_ids,
+                (loaded, total) => {
+                    game.loaded_dlc_count = loaded;
+                    if (onProgress) onProgress(loaded, total);
+                },
+                (batch) => {
+                    if (!game.dlc_data) game.dlc_data = [];
+                    game.dlc_data.push(...batch);
+                    updateDLCBadge(appId, game.loaded_dlc_count, game.dlc_count);
+                }
+            );
+            
+            game.dlc_data = dlcDetails;
+            game.dlc_loading = false;
+            saveGamesToLocalStorage();
+        }
+        
+        return {
+            mainGame: {
+                type: 'main',
+                name: game.name,
+                appid: appId,
+                price: game.price_initial_cents ? {
+                    initial: game.price_initial_cents,
+                    final: game.price_final_cents,
+                    discount_percent: game.discount_percent
+                } : null,
+                is_free: game.is_free,
+                versions: game.versions || [],
+                selectedVersion: game.selectedVersion,
+                selectedVersionData: game.selectedVersionData
+            },
+            dlcs: game.dlc_data || [],
+            allDlcIds: game.dlc_ids || [],
+            totalDlcCount: game.dlc_count || 0,
+            loadedDlcCount: game.loaded_dlc_count || 0,
+            hasMoreDLC: false
+        };
+        
+    } catch (error) {
+        return { 
+            mainGame: null, 
+            dlcs: [], 
+            allDlcIds: [],
+            totalDlcCount: 0,
+            loadedDlcCount: 0,
+            error: error.message,
+            versions: []
+        };
+    } finally {
+        stopLoading();
+    }
+}
+
 async function fetchAndAddGame(appId){
     if (!appId || appId <= 0) {
         showStatus('ID invalide', 'error');
@@ -2052,6 +2264,15 @@ async function fetchAndAddGame(appId){
                     if (gameIndex !== -1) {
                         const versions = await fetchGamePackages(appId);
                         games[gameIndex].versions = versions;
+                        
+                        // Sélectionner automatiquement la première version si aucune n'est sélectionnée
+                        if (versions.length > 0 && !games[gameIndex].selectedVersion) {
+                            const firstVersion = versions[0];
+                            games[gameIndex].selectedVersion = firstVersion.packageid;
+                            games[gameIndex].selectedVersionData = firstVersion;
+                            versions[0].selected = true;
+                        }
+                        
                         saveGamesToLocalStorage();
                         
                         if (versions.length > 0) {
@@ -2136,6 +2357,415 @@ async function retryGame(appId) {
     }
 }
 
+// NOUVEAU : Fonction pour rafraîchir un jeu spécifique
+async function refreshSingleGame(appId) {
+    startLoading();
+    try {
+        showStatus(`Rafraîchissement du jeu ${appId}...`, 'loading');
+        
+        const gameData = await fetchGameDataWithPreload(appId);
+        
+        if (gameData) {
+            const index = games.findIndex(g => 
+                String(g.appid) === String(appId) || 
+                String(g.steam_appid) === String(appId)
+            );
+            
+            if (index !== -1) {
+                // Conserver l'état de sélection et des DLC
+                gameData.selected = games[index].selected || false;
+                gameData.dlc_data = games[index].dlc_data || [];
+                gameData.loaded_dlc_count = games[index].loaded_dlc_count || 0;
+                gameData.dlc_loading = games[index].dlc_loading || false;
+                gameData.versions = games[index].versions || [];
+                gameData.selectedVersion = games[index].selectedVersion || null;
+                gameData.selectedVersionData = games[index].selectedVersionData || null;
+                
+                games[index] = gameData;
+                saveGamesToLocalStorage();
+                refreshGrid();
+                showStatus(`Jeu ${gameData.name} rafraîchi`, 'success');
+            }
+        } else {
+            showStatus(`Échec du rafraîchissement du jeu ${appId}`, 'error');
+        }
+    } catch (error) {
+        console.error('Erreur de rafraîchissement:', error);
+        showStatus(`Erreur lors du rafraîchissement`, 'error');
+    } finally {
+        stopLoading();
+    }
+}
+
+// NOUVEAU : Fonction pour rafraîchir tous les jeux
+async function refreshAllGames() {
+    if (games.length === 0) {
+        showStatus('Aucun jeu à rafraîchir', 'warning');
+        return;
+    }
+    
+    if (!confirm(`Voulez-vous rafraîchir les prix de tous les jeux (${games.length}) ?`)) {
+        return;
+    }
+    
+    const btn = document.getElementById('refreshAllBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Rafraîchissement...';
+    btn.disabled = true;
+    
+    startLoading();
+    showStatus(`Rafraîchissement de ${games.length} jeux...`, 'loading');
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < games.length; i++) {
+        const game = games[i];
+        try {
+            const gameData = await fetchGameDataWithPreload(game.appid || game.steam_appid);
+            
+            if (gameData) {
+                // Conserver l'état existant
+                gameData.selected = game.selected;
+                gameData.dlc_data = game.dlc_data || [];
+                gameData.loaded_dlc_count = game.loaded_dlc_count || 0;
+                gameData.dlc_loading = game.dlc_loading || false;
+                gameData.versions = game.versions || [];
+                gameData.selectedVersion = game.selectedVersion || null;
+                gameData.selectedVersionData = game.selectedVersionData || null;
+                
+                games[i] = gameData;
+                successCount++;
+                
+                // Mettre à jour le statut progressivement
+                showStatus(`Rafraîchissement... ${successCount + errorCount}/${games.length}`, 'loading');
+            } else {
+                errorCount++;
+            }
+        } catch (error) {
+            errorCount++;
+        }
+        
+        // Petite pause pour éviter de surcharger l'API
+        await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    saveGamesToLocalStorage();
+    refreshGrid();
+    
+    btn.textContent = originalText;
+    btn.disabled = false;
+    
+    if (errorCount === 0) {
+        showStatus(`${successCount} jeu(x) rafraîchi(s) avec succès`, 'success');
+    } else {
+        showStatus(`${successCount} succès, ${errorCount} échec(s)`, successCount > 0 ? 'warning' : 'error');
+    }
+    
+    stopLoading();
+}
+
+// MODIFIÉ : Fonction pour récupérer les jeux depuis l'API Steam avec proxy
+async function fetchSteamOwnedGames(steamId) {
+    startLoading();
+    try {
+        showStatus('Récupération des jeux depuis Steam...', 'loading');
+        
+        // Construire l'URL avec la clé API
+        const steamApiUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${STEAM_API_KEY}&steamid=${steamId}&include_appinfo=1&include_played_free_games=1&format=json`;
+        
+        // Essayer d'abord avec un proxy pour éviter les problèmes CORS
+        for (const proxy of CONFIG.proxies) {
+            try {
+                const url = proxy + encodeURIComponent(steamApiUrl);
+                console.log('Essaie de récupérer via proxy:', proxy);
+                
+                const response = await fetchWithTimeoutAndRetry(
+                    url,
+                    {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                            'Accept': 'application/json'
+                        },
+                        timeout: 15000
+                    },
+                    0,
+                    1,
+                    15000
+                );
+                
+                if (!response.ok) {
+                    console.log(`Proxy ${proxy} échoué: ${response.status}`);
+                    continue;
+                }
+                
+                const data = await response.json();
+                console.log('Réponse reçue via proxy:', data);
+                
+                if (!data.response || !data.response.games) {
+                    console.log('Réponse invalide via proxy');
+                    continue;
+                }
+                
+                return data.response.games;
+                
+            } catch (error) {
+                console.log(`Erreur avec proxy ${proxy}:`, error.message);
+                continue;
+            }
+        }
+        
+        // Si tous les proxys échouent, essayer directement
+        console.log('Tentative directe sans proxy...');
+        try {
+            const response = await fetchWithTimeoutAndRetry(
+                steamApiUrl,
+                {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'application/json'
+                    },
+                    mode: 'cors',
+                    timeout: 15000
+                },
+                0,
+                1,
+                15000
+            );
+            
+            if (!response.ok) {
+                throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            console.log('Réponse directe:', data);
+            
+            if (!data.response || !data.response.games) {
+                throw new Error('Réponse invalide de l\'API Steam - structure de données incorrecte');
+            }
+            
+            return data.response.games;
+            
+        } catch (directError) {
+            console.error('Erreur directe:', directError);
+            throw directError;
+        }
+        
+    } catch (error) {
+        console.error('Erreur fetchSteamOwnedGames:', error);
+        
+        // Message d'erreur plus détaillé
+        let errorMessage = 'Erreur de récupération';
+        
+        if (error.name === 'AbortError') {
+            errorMessage = 'Timeout de la requête. Réessayez.';
+        } else if (error.message.includes('403') || error.message.includes('401')) {
+            errorMessage = 'Accès refusé. Vérifiez votre SteamID et que votre profil est public.';
+        } else if (error.message.includes('Invalid')) {
+            errorMessage = 'SteamID invalide. Utilisez un SteamID 64 valide.';
+        } else if (error.message.includes('key') || error.message.includes('API')) {
+            errorMessage = 'Problème avec la clé API Steam. Essayez une autre clé.';
+        } else if (error.message.includes('network') || error.message.includes('Network')) {
+            errorMessage = 'Erreur réseau. Vérifiez votre connexion internet.';
+        } else if (error.message.includes('CORS')) {
+            errorMessage = 'Erreur CORS. Essayez avec un navigateur différent ou désactivez les extensions de sécurité.';
+        } else {
+            errorMessage = `Erreur: ${error.message}`;
+        }
+        
+        throw new Error(errorMessage);
+    } finally {
+        stopLoading();
+    }
+}
+
+// MODIFIÉ : Fonction pour ajouter les jeux Steam récupérés
+async function addSteamGames(steamGames, onlySelected = false) {
+    const btn = onlySelected ? document.getElementById('fetchSelectedGamesBtn') : document.getElementById('fetchSteamGamesBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Ajout en cours...';
+    btn.disabled = true;
+    
+    startLoading();
+    
+    try {
+        let gamesToAdd = steamGames;
+        
+        if (onlySelected) {
+            // Filtrer les jeux déjà sélectionnés
+            const selectedGameIds = games.filter(g => g.selected).map(g => g.appid || g.steam_appid);
+            gamesToAdd = steamGames.filter(game => selectedGameIds.includes(game.appid));
+            
+            if (gamesToAdd.length === 0) {
+                showStatus('Aucun jeu sélectionné correspondant trouvé', 'warning');
+                return;
+            }
+        }
+        
+        showStatus(`Ajout de ${gamesToAdd.length} jeux...`, 'loading');
+        
+        let addedCount = 0;
+        let skippedCount = 0;
+        let errorCount = 0;
+        
+        // Traiter les jeux par lots pour éviter de bloquer l'interface
+        const batchSize = 3;
+        for (let i = 0; i < gamesToAdd.length; i += batchSize) {
+            const batch = gamesToAdd.slice(i, i + batchSize);
+            
+            const batchPromises = batch.map(async (steamGame) => {
+                const appId = steamGame.appid;
+                
+                // Vérifier si le jeu existe déjà
+                if (hasGame(appId)) {
+                    skippedCount++;
+                    return null;
+                }
+                
+                try {
+                    // Récupérer les données détaillées du jeu
+                    const basicGameData = await fetchBasicGameData(appId);
+                    
+                    if (basicGameData) {
+                        games.push(basicGameData);
+                        addedCount++;
+                        
+                        // Ajouter la ligne au DOM
+                        addGameRow(basicGameData);
+                        
+                        // Charger les versions en arrière-plan
+                        setTimeout(async () => {
+                            try {
+                                const gameIndex = games.findIndex(g => g.appid === appId);
+                                if (gameIndex !== -1) {
+                                    const versions = await fetchGamePackages(appId);
+                                    games[gameIndex].versions = versions;
+                                    
+                                    if (versions.length > 0 && !games[gameIndex].selectedVersion) {
+                                        const firstVersion = versions[0];
+                                        games[gameIndex].selectedVersion = firstVersion.packageid;
+                                        games[gameIndex].selectedVersionData = firstVersion;
+                                        versions[0].selected = true;
+                                    }
+                                    
+                                    saveGamesToLocalStorage();
+                                }
+                            } catch (error) {
+                                // Ignorer les erreurs
+                            }
+                        }, 500);
+                        
+                        return basicGameData;
+                    } else {
+                        errorCount++;
+                        return null;
+                    }
+                } catch (error) {
+                    errorCount++;
+                    return null;
+                }
+            });
+            
+            // Attendre le lot actuel
+            await Promise.allSettled(batchPromises);
+            
+            // Mettre à jour le statut
+            const processed = Math.min(i + batchSize, gamesToAdd.length);
+            showStatus(`Ajout... ${processed}/${gamesToAdd.length}`, 'loading');
+            
+            // Petite pause entre les lots
+            if (processed < gamesToAdd.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        saveGamesToLocalStorage();
+        sortGames();
+        updateSelectionStats();
+        
+        let message = '';
+        if (addedCount > 0) message += `${addedCount} jeu(x) ajouté(s). `;
+        if (skippedCount > 0) message += `${skippedCount} jeu(x) déjà présent(s). `;
+        if (errorCount > 0) message += `${errorCount} erreur(s).`;
+        
+        showStatus(message.trim(), 
+                   errorCount > 0 ? (addedCount > 0 ? 'warning' : 'error') : 'success');
+        
+    } catch (error) {
+        console.error('Erreur addSteamGames:', error);
+        showStatus('Erreur lors de l\'ajout des jeux', 'error');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        stopLoading();
+    }
+}
+
+// MODIFIÉ : Fonction pour récupérer et ajouter les jeux Steam
+async function fetchAndAddSteamGames(onlySelected = false) {
+    const steamId = document.getElementById('steamIdInput').value.trim();
+    
+    if (!steamId) {
+        showStatus('Veuillez entrer un SteamID', 'error');
+        return;
+    }
+    
+    // Vérifier que c'est un SteamID 64 (17 chiffres)
+    if (!/^\d{17}$/.test(steamId)) {
+        showStatus('SteamID invalide. Utilisez un SteamID 64 (17 chiffres)', 'error');
+        return;
+    }
+    
+    const statusEl = document.getElementById('steamApiStatus');
+    statusEl.textContent = 'Récupération en cours...';
+    statusEl.style.color = '#66c0f4';
+    
+    try {
+        showStatus('Connexion à l\'API Steam...', 'loading');
+        const steamGames = await fetchSteamOwnedGames(steamId);
+        
+        if (steamGames.length === 0) {
+            statusEl.textContent = 'Aucun jeu trouvé';
+            statusEl.style.color = '#ffa366';
+            showStatus('Aucun jeu trouvé dans votre bibliothèque', 'warning');
+            return;
+        }
+        
+        statusEl.textContent = `${steamGames.length} jeux trouvés`;
+        statusEl.style.color = '#1a7f57';
+        
+        // Ajouter les jeux
+        await addSteamGames(steamGames, onlySelected);
+        
+    } catch (error) {
+        console.error('Erreur fetchAndAddSteamGames:', error);
+        
+        let errorMessage = 'Erreur de récupération';
+        let errorType = 'error';
+        
+        if (error.message.includes('Timeout') || error.message.includes('timeout')) {
+            errorMessage = 'Timeout de la requête. Réessayez.';
+            errorType = 'warning';
+        } else if (error.message.includes('403') || error.message.includes('401') || error.message.includes('Accès refusé')) {
+            errorMessage = 'Accès refusé. Vérifiez que votre profil Steam est public et que votre SteamID est correct.';
+        } else if (error.message.includes('SteamID invalide')) {
+            errorMessage = 'SteamID invalide. Utilisez un SteamID 64 valide (17 chiffres).';
+        } else if (error.message.includes('clé API')) {
+            errorMessage = 'Problème avec la clé API. Essayez une autre clé ou réessayez plus tard.';
+        } else if (error.message.includes('CORS')) {
+            errorMessage = 'Erreur CORS. Essayez avec un navigateur différent ou désactivez les extensions de sécurité.';
+        } else if (error.message.includes('réseau')) {
+            errorMessage = 'Erreur réseau. Vérifiez votre connexion internet.';
+        } else {
+            errorMessage = `Erreur: ${error.message}`;
+        }
+        
+        statusEl.textContent = errorMessage;
+        statusEl.style.color = '#ff6b6b';
+        showStatus(errorMessage, errorType);
+    }
+}
+
 function formatPrice(cents){
     if (cents === null || cents === undefined) return '—';
     return (cents/100).toFixed(2) + '€';
@@ -2190,10 +2820,14 @@ function addGameRow(game){
     
     const bgImage = document.createElement('div');
     bgImage.className = 'name-bg-image';
-    bgImage.style.backgroundImage = `url('${game.header_image}')`;
-    bgImage.onerror = function() {
-        this.style.backgroundImage = `url('https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png')`;
-    };
+    if (game.header_image) {
+        bgImage.style.backgroundImage = `url('${game.header_image}')`;
+        bgImage.onerror = function() {
+            this.style.backgroundImage = `url('https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png')`;
+        };
+    } else {
+        bgImage.style.backgroundImage = `url('https://store.cloudflare.steamstatic.com/public/shared/images/header/globalheader_logo.png')`;
+    }
     
     const nameContent = document.createElement('div');
     nameContent.className = 'name-content';
@@ -2216,18 +2850,11 @@ function addGameRow(game){
     
     const titleText = document.createElement('span');
     
-    // MODIFICATION : Afficher le nom de la version sélectionnée si elle existe
+    // Afficher le nom de la version sélectionnée si disponible
     if (game.selectedVersionData && game.selectedVersionData.name) {
         titleText.textContent = game.selectedVersionData.name;
-        // Ajouter un indicateur que c'est une version
-        const versionIndicator = document.createElement('span');
-        versionIndicator.className = 'version-indicator';
-        versionIndicator.textContent = 'Version';
-        titleContainer.appendChild(titleText);
-        titleContainer.appendChild(versionIndicator);
     } else {
         titleText.textContent = game.name || 'Inconnu';
-        titleContainer.appendChild(titleText);
     }
     
     if (game.unavailable) {
@@ -2272,6 +2899,16 @@ function addGameRow(game){
     
     actions.appendChild(deleteBtn);
     
+    // Bouton de rafraîchissement individuel
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'refresh-btn';
+    refreshBtn.textContent = 'Rafraîchir';
+    refreshBtn.onclick = function(e) {
+        e.stopPropagation();
+        refreshSingleGame(game.appid || game.steam_appid);
+    };
+    actions.appendChild(refreshBtn);
+    
     if (game.unavailable || game.offline) {
         const retryBtn = document.createElement('button');
         retryBtn.className = 'retry-btn';
@@ -2289,7 +2926,7 @@ function addGameRow(game){
     nameCell.appendChild(bgImage);
     nameCell.appendChild(nameContent);
     
-    // MODIFICATION : Afficher les prix de la version sélectionnée si elle existe
+    // Afficher les prix de la version sélectionnée si elle existe
     const oldCell = document.createElement('div'); 
     oldCell.className='cell';
     const oldPrice = document.createElement('div'); 
@@ -2359,7 +2996,6 @@ function addGameRow(game){
         disc.textContent = game.offline ? 'ERR' : 'N/A';
         disc.style.background = game.offline ? '#5c5c2e' : '#5c2e2e';
     } else if (game.selectedVersionData) {
-        // Utiliser la réduction de la version sélectionnée
         if (game.selectedVersionData.is_free_license) {
             disc.textContent = 'FREE';
             disc.style.background = '#2a4758';
@@ -2560,13 +3196,11 @@ function sortGames() {
         
         switch (currentSort.field) {
             case 'name':
-                // Utiliser le nom de la version sélectionnée si disponible
                 valueA = a.selectedVersionData ? a.selectedVersionData.name.toLowerCase() : a.name?.toLowerCase() || '';
                 valueB = b.selectedVersionData ? b.selectedVersionData.name.toLowerCase() : b.name?.toLowerCase() || '';
                 break;
                 
             case 'original-price':
-                // Utiliser le prix de la version sélectionnée si disponible
                 if (a.selectedVersionData) {
                     valueA = a.selectedVersionData.is_free_license ? 0 : a.selectedVersionData.price_in_cents_with_discount || Infinity;
                 } else {
@@ -2652,13 +3286,23 @@ function saveGamesToLocalStorage() {
     localStorage.setItem('sortSettings', JSON.stringify(currentSort));
 }
 
+// MODIFIÉ : Fonction pour charger les jeux depuis le localStorage
 function loadGamesFromLocalStorage() {
     const savedGames = localStorage.getItem('steamGames');
     if (savedGames) {
         try {
             const parsedGames = JSON.parse(savedGames);
             games.length = 0;
-            parsedGames.forEach(game => games.push(game));
+            parsedGames.forEach(game => {
+                // S'assurer que la première version est sélectionnée si aucune version n'est sélectionnée
+                if (game.versions && game.versions.length > 0 && !game.selectedVersion) {
+                    const firstVersion = game.versions[0];
+                    game.selectedVersion = firstVersion.packageid;
+                    game.selectedVersionData = firstVersion;
+                    game.versions[0].selected = true;
+                }
+                games.push(game);
+            });
             return true;
         } catch (e) {
             console.error('Erreur de chargement:', e);
@@ -2722,6 +3366,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
                         const gameIndex = games.findIndex(g => g.appid === game.appid);
                         if (gameIndex !== -1) {
                             games[gameIndex].versions = versions;
+                            
+                            // Sélectionner automatiquement la première version si aucune n'est sélectionnée
+                            if (versions.length > 0 && !games[gameIndex].selectedVersion) {
+                                const firstVersion = versions[0];
+                                games[gameIndex].selectedVersion = firstVersion.packageid;
+                                games[gameIndex].selectedVersionData = firstVersion;
+                                versions[0].selected = true;
+                            }
+                            
                             saveGamesToLocalStorage();
                         }
                     } catch (error) {
@@ -2766,7 +3419,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
             showStatus('Entrez un ID Steam valide', 'error');
             return;
         }
-        fetchAndAddGame(id);
+        fetchAndAddGame(parseInt(id));
     });
     
     input.addEventListener('keydown', (e)=>{ 
@@ -2776,6 +3429,38 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
     
     clearBtn.addEventListener('click', clearAllGames);
+    
+    // Bouton de rafraîchissement global
+    const refreshAllBtn = document.getElementById('refreshAllBtn');
+    refreshAllBtn.addEventListener('click', refreshAllGames);
+    
+    // Boutons pour récupérer les jeux Steam
+    const fetchSteamGamesBtn = document.getElementById('fetchSteamGamesBtn');
+    const fetchSelectedGamesBtn = document.getElementById('fetchSelectedGamesBtn');
+    const steamIdInput = document.getElementById('steamIdInput');
+    
+    fetchSteamGamesBtn.addEventListener('click', () => fetchAndAddSteamGames(false));
+    fetchSelectedGamesBtn.addEventListener('click', () => fetchAndAddSteamGames(true));
+    
+    // Raccourci clavier pour SteamID
+    steamIdInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            fetchSteamGamesBtn.click();
+        }
+    });
+    
+    // Charger le SteamID depuis le localStorage si disponible
+    const savedSteamId = localStorage.getItem('steamTracker_steamId');
+    if (savedSteamId) {
+        steamIdInput.value = savedSteamId;
+    }
+    
+    // Sauvegarder le SteamID quand il change
+    steamIdInput.addEventListener('change', () => {
+        if (steamIdInput.value.trim()) {
+            localStorage.setItem('steamTracker_steamId', steamIdInput.value.trim());
+        }
+    });
     
     // Ajouter les gestionnaires de tri
     document.querySelectorAll('.sortable').forEach(header => {
@@ -2804,7 +3489,10 @@ window.SteamAPI = {
     fetchGameVersions,
     retrySingleDLC,
     updatePepeGif,
-    sortGames
+    sortGames,
+    refreshSingleGame,
+    refreshAllGames,
+    fetchSteamOwnedGames
 };
     </script>
 </body>
